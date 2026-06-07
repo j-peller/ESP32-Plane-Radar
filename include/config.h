@@ -1,8 +1,46 @@
 #pragma once
 
+#include <Arduino.h>
 #include <cstdint>
-
 #include <driver/gpio.h>
+
+#ifdef DISABLE_SERIAL_MONITOR
+class DummySerial {
+public:
+    template<typename... Args> void begin(Args&&...) {}
+    template<typename... Args> void print(Args&&...) {}
+    template<typename... Args> void println(Args&&...) {}
+    template<typename... Args> void printf(Args&&...) {}
+    template<typename... Args> size_t write(Args&&...) { return 0; }
+};
+static DummySerial dummySerial;
+#undef Serial
+#define Serial dummySerial
+#endif
+
+#ifndef BOOT_PIN
+#define BOOT_PIN 9
+#endif
+
+#ifndef DISPLAY_PIN_RST
+#define DISPLAY_PIN_RST 0
+#endif
+
+#ifndef DISPLAY_PIN_CS
+#define DISPLAY_PIN_CS 1
+#endif
+
+#ifndef DISPLAY_PIN_DC
+#define DISPLAY_PIN_DC 10
+#endif
+
+#ifndef DISPLAY_PIN_MOSI
+#define DISPLAY_PIN_MOSI 3
+#endif
+
+#ifndef DISPLAY_PIN_SCLK
+#define DISPLAY_PIN_SCLK 4
+#endif
 
 namespace config {
 
@@ -23,18 +61,18 @@ constexpr unsigned long kWifiDownGraceMs = 4000;
 /** Minimum interval between background reconnect tries. */
 constexpr unsigned long kWifiReconnectIntervalMs = 15000;
 
-// --- BOOT button (ESP32-C3 Super Mini, active LOW) ---
-constexpr gpio_num_t kBootPin = GPIO_NUM_9;
+// --- BOOT button (active LOW) ---
+constexpr gpio_num_t kBootPin = static_cast<gpio_num_t>(BOOT_PIN);
 constexpr unsigned long kBootResetHoldMs = 3000UL;
 /** Ignore BOOT taps shorter than this (debounce). */
 constexpr unsigned long kBootTapMinMs = 40UL;
 
 // --- Display: GC9A01 1.28" round 240×240 (SPI) ---
-constexpr gpio_num_t kDisplayPinRst = GPIO_NUM_0;
-constexpr gpio_num_t kDisplayPinCs = GPIO_NUM_1;
-constexpr gpio_num_t kDisplayPinDc = GPIO_NUM_10;
-constexpr gpio_num_t kDisplayPinMosi = GPIO_NUM_3;  // display SDA
-constexpr gpio_num_t kDisplayPinSclk = GPIO_NUM_4;  // display SCL
+constexpr gpio_num_t kDisplayPinRst = static_cast<gpio_num_t>(DISPLAY_PIN_RST);
+constexpr gpio_num_t kDisplayPinCs = static_cast<gpio_num_t>(DISPLAY_PIN_CS);
+constexpr gpio_num_t kDisplayPinDc = static_cast<gpio_num_t>(DISPLAY_PIN_DC);
+constexpr gpio_num_t kDisplayPinMosi = static_cast<gpio_num_t>(DISPLAY_PIN_MOSI);  // display SDA
+constexpr gpio_num_t kDisplayPinSclk = static_cast<gpio_num_t>(DISPLAY_PIN_SCLK);  // display SCL
 
 constexpr int kDisplayWidth = 240;
 constexpr int kDisplayHeight = 240;
@@ -43,6 +81,13 @@ constexpr uint32_t kDisplaySpiWriteHz = 40000000;
 // GC9A01 modules often need invert + BGR for correct black/green output
 constexpr bool kDisplayInvert = true;
 constexpr bool kDisplayRgbOrder = true;
+
+/** Stream framebuffer over USB Serial (CDC) to a virtual display client on PC. */
+#ifdef ENABLE_VIRTUAL_DISPLAY
+constexpr bool kVirtualDisplayEnabled = true;
+#else
+constexpr bool kVirtualDisplayEnabled = false;
+#endif
 
 // --- Radar center defaults (overridden via WiFi setup portal) ---
 constexpr double kDefaultRadarLat = 52.3676;

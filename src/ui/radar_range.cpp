@@ -14,12 +14,14 @@ namespace {
 constexpr char kPrefsNamespace[] = "planeradar";
 constexpr char kPrefsRangeKey[] = "rangeIdx";
 constexpr char kPrefsMilesKey[] = "useMiles";
+constexpr char kPrefsRetroKey[] = "retroTheme";
 constexpr uint8_t kDefaultRangeIndex = 1;  // 10 km ring
 constexpr float kKmPerMile = 1.609344f;
 
 Preferences s_prefs;
 uint8_t s_range_index = kDefaultRangeIndex;
 bool s_use_miles = false;
+bool s_retro_theme = false;
 
 void saveRangeIndex() {
   if (!s_prefs.begin(kPrefsNamespace, false)) {
@@ -104,6 +106,26 @@ void unitsReset() {
   s_use_miles = false;
   if (s_prefs.begin(kPrefsNamespace, false)) {
     s_prefs.remove(kPrefsMilesKey);
+    s_prefs.end();
+  }
+}
+
+bool isRetroTheme() {
+  return s_retro_theme;
+}
+
+void themeInit() {
+  if (!s_prefs.begin(kPrefsNamespace, true)) {
+    return;
+  }
+  s_retro_theme = s_prefs.getBool(kPrefsRetroKey, false);
+  s_prefs.end();
+}
+
+void toggleTheme() {
+  s_retro_theme = !s_retro_theme;
+  if (s_prefs.begin(kPrefsNamespace, false)) {
+    s_prefs.putBool(kPrefsRetroKey, s_retro_theme);
     s_prefs.end();
   }
 }

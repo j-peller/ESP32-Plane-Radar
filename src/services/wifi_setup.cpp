@@ -284,10 +284,15 @@ bool openConfigPortal(WiFiManager& wm) {
   statusScreenPortal();
   wm.setConfigPortalBlocking(false);
   wm.startConfigPortal(config::kPortalApName);
+  unsigned long last_portal_draw = 0;
   while (wm.getConfigPortalActive()) {
     bootButtonPollLongPress();
     if (wm.process()) {
       return true;
+    }
+    if (millis() - last_portal_draw >= 1500) {
+      last_portal_draw = millis();
+      statusScreenPortal();
     }
     delay(10);
   }

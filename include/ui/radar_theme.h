@@ -86,4 +86,8 @@ extern uint16_t kColorTrackVector;
 extern uint16_t kColorTagType;
 extern uint16_t kColorTagAltitude;
 
+bool isRetroTheme();
+void toggleTheme();
+void themeInit();
+
 }  // namespace ui::radar
