@@ -22,6 +22,8 @@ bool g_radar_visible = false;
 unsigned long g_wifi_down_since = 0;
 unsigned long g_last_reconnect_ms = 0;
 unsigned long g_last_adsb_fetch_ms = 0;
+bool g_pulse_active = false;
+unsigned long g_pulse_start_ms = 0;
 
 void showRadarIfConnected() {
   if (WiFi.status() != WL_CONNECTED) {
@@ -38,6 +40,7 @@ bool g_pending_tap = false;
 void onThemeToggle() {
   ui::radar::toggleTheme();
   Serial.printf("Theme toggled: %s\n", ui::radar::isRetroTheme() ? "Retro Green" : "Multicolor");
+  g_pulse_active = false;
   if (g_radar_visible && WiFi.status() == WL_CONNECTED) {
     ui::radarDisplayDraw();
   }
@@ -50,6 +53,7 @@ void onRangeTap() {
   Serial.printf("Range: %s (outer ~%.0f km)\n", range_label,
                 ui::radar::rangeCurrent().outer_km);
 
+  g_pulse_active = false;
   if (g_radar_visible && WiFi.status() == WL_CONNECTED) {
     ui::radarDisplayDraw();
   }
@@ -142,28 +146,23 @@ void loop() {
     } else {
       // 1. Fetch ADS-B data periodically
       if (millis() - g_last_adsb_fetch_ms >= config::kAdsbFetchIntervalMs) {
-        g_last_adsb_fetch_ms = millis();
         fetchAndDrawAircraft();
+        g_last_adsb_fetch_ms = millis();
+        g_pulse_active = true;
+        g_pulse_start_ms = millis();
       }
 
-      // 2. Continuous sweep animation when visible
-      static float sweep_angle = 0.0f;
-      static unsigned long last_sweep_ms = 0;
-      unsigned long now = millis();
-      if (last_sweep_ms == 0) {
-        last_sweep_ms = now;
-      }
-      unsigned long elapsed = now - last_sweep_ms;
-      if (elapsed >= 30) { // ~33 FPS target
-        last_sweep_ms = now;
-
-        // Speed: 360 degrees every 4.0 seconds = 0.09 degrees per millisecond
-        constexpr float kDegreesPerMs = 360.0f / 4000.0f;
-        sweep_angle += elapsed * kDegreesPerMs;
-        if (sweep_angle >= 360.0f) {
-          sweep_angle = fmod(sweep_angle, 360.0f);
+      // 2. Drive the refresh pulse animation
+      if (g_pulse_active) {
+        unsigned long elapsed = millis() - g_pulse_start_ms;
+        constexpr unsigned long kPulseDurationMs = 800; // 800ms pulse duration
+        if (elapsed >= kPulseDurationMs) {
+          g_pulse_active = false;
+          ui::radarDisplayRefreshWithPulse(-1); // Final static draw
+        } else {
+          int radius = (elapsed * ui::radar::kCenterX) / kPulseDurationMs;
+          ui::radarDisplayRefreshWithPulse(radius);
         }
-        ui::radarDisplayRefreshWithSweep(sweep_angle);
       }
     }
   }

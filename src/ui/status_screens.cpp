@@ -62,14 +62,7 @@ lgfx::LovyanGFX* screen_gfx() {
 void screen_commit() {
   if (s_bg_ready) {
 #ifdef ENABLE_VIRTUAL_DISPLAY
-    if (config::kVirtualDisplayEnabled) {
-      static unsigned long last_serial_send = 0;
-      if (last_serial_send == 0 || millis() - last_serial_send >= 200) {
-        last_serial_send = millis();
-        Serial.write((const uint8_t*)"\xAA\xBB\xCC\xDD\xA5\x5A\xA5\x5A\x11\x22\x33\x44\x55\x66\x77\x88", 16);
-        Serial.write((const uint8_t*)s_bg.getBuffer(), config::kDisplayWidth * config::kDisplayHeight * 2);
-      }
-    }
+    displayStreamVirtual();
 #endif
     s_bg.pushSprite(0, 0);
   }
@@ -219,11 +212,11 @@ void drawQrCode(const char* qrText) {
   const int qrSize = qrcode.size * scale; // 116 pixels
   
   const int qr_x = kCenterX - qrSize / 2;
-  const int qr_y = kCenterY - qrSize / 2;
+  const int qr_y = kCenterY + 10 - qrSize / 2;
   
   const int pad = 8;
-  // Draw white background / quiet zone
-  screen_gfx()->fillRect(qr_x - pad, qr_y - pad, qrSize + pad * 2, qrSize + pad * 2, 0xFFFF);
+  // Draw smooth white rounded rectangle background / quiet zone
+  screen_gfx()->fillRoundRect(qr_x - pad, qr_y - pad, qrSize + pad * 2, qrSize + pad * 2, 16, 0xFFFF);
   
   // Draw black modules
   for (uint8_t y = 0; y < qrcode.size; y++) {
@@ -269,33 +262,25 @@ void statusScreenPortal() {
   screen_gfx()->setTextColor(config::kTextOnYellow, config::kColorYellow);
   screen_gfx()->setTextDatum(textdatum_t::middle_center);
 
-  // 2. Draw Title Text above the QR code
+  // 2. Draw SSID info at the top
   if (displayFontIsSmooth()) {
-    displayFontSetSmoothSize(*screen_gfx(), 1.15f);
+    displayFontSetSmoothSize(*screen_gfx(), 1.4f);
+  } else {
+    displayFontSetBitmap(*screen_gfx(), &kPortalGfxBody);
+  }
+  screen_gfx()->drawString("Scan to Setup", kCenterX, 15);
+
+  if (displayFontIsSmooth()) {
+    displayFontSetSmoothSize(*screen_gfx(), 2.0f);
   } else {
     displayFontSetBitmap(*screen_gfx(), &kPortalGfxTitle);
   }
-  screen_gfx()->drawString("Wi-Fi Setup", kCenterX, 28);
+  screen_gfx()->drawString(config::kPortalApName, kCenterX, 42);
 
   // 3. Draw QR code in the center (SSID link format)
   char qr_text[128];
   snprintf(qr_text, sizeof(qr_text), "WIFI:S:%s;T:nopass;;", config::kPortalApName);
   drawQrCode(qr_text);
-
-  // 4. Draw SSID instructions below the QR code
-  if (displayFontIsSmooth()) {
-    displayFontSetSmoothSize(*screen_gfx(), 1.0f);
-  } else {
-    displayFontSetBitmap(*screen_gfx(), &kPortalGfxBody);
-  }
-  screen_gfx()->drawString("Scan to connect AP:", kCenterX, 202);
-  
-  if (displayFontIsSmooth()) {
-    displayFontSetSmoothSize(*screen_gfx(), 1.12f);
-  } else {
-    displayFontSetBitmap(*screen_gfx(), &kPortalGfxEmphasis);
-  }
-  screen_gfx()->drawString(config::kPortalApName, kCenterX, 222);
 
   // 5. Commit frame
   screen_commit();

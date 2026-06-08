@@ -19,6 +19,9 @@ constexpr float kKmPerNm = 1.852f;
 Aircraft s_aircraft[kMaxAircraft];
 size_t s_aircraft_count = 0;
 
+Aircraft s_aircraft_old[kMaxAircraft];
+size_t s_aircraft_count_old = 0;
+
 float kmToNauticalMiles(float km) { return km / kKmPerNm; }
 
 bool readJsonFloat(const JsonObject& obj, const char* key, float* out) {
@@ -137,6 +140,10 @@ size_t aircraftCount() { return s_aircraft_count; }
 
 const Aircraft* aircraftList() { return s_aircraft; }
 
+size_t aircraftCountOld() { return s_aircraft_count_old; }
+
+const Aircraft* aircraftListOld() { return s_aircraft_old; }
+
 bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
   const float dist_nm = kmToNauticalMiles(fetch_radius_km);
 
@@ -175,6 +182,11 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
   }
 
   JsonArray ac = doc["ac"].as<JsonArray>();
+
+  // Cache current aircraft to old array before overwriting
+  memcpy(s_aircraft_old, s_aircraft, sizeof(s_aircraft));
+  s_aircraft_count_old = s_aircraft_count;
+
   if (ac.isNull()) {
     s_aircraft_count = 0;
     return true;

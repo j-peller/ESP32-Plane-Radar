@@ -11,7 +11,7 @@ void radarDisplayRefreshAircraft();
 /** Redraw only the range label (no full-screen clear). Use after rangeNext(). */
 void radarDisplayRefreshRange();
 
-/** Redraw background, sweep line, and aircraft at the given sweep angle. */
-void radarDisplayRefreshWithSweep(float sweep_angle);
+/** Redraw background, pulse ring, and aircraft at the given pulse radius. */
+void radarDisplayRefreshWithPulse(int pulse_radius);
 
 }  // namespace ui

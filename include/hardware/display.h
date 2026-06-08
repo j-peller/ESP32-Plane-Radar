@@ -7,3 +7,8 @@ extern LGFX_Sprite s_bg;
 extern bool s_bg_ready;
 
 void displayInit();
+
+#ifdef ENABLE_VIRTUAL_DISPLAY
+void displayStreamVirtual();
+#endif
+

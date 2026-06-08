@@ -32,7 +32,7 @@ uint16_t kColorTagAltitude = 0xFFE0;
 
 namespace {
 
-float s_sweep_angle = 0.0f;
+int s_pulse_radius = -1;
 
 uint16_t fadeColor(uint16_t color, float intensity) {
   if (intensity <= 0.0f) return 0;
@@ -502,126 +502,265 @@ void sortBeyondDotsFarFirst(BeyondDotDrawItem* items, size_t count) {
   }
 }
 
-void drawSweepBeam(float sweep_angle) {
-  const int cx = radar::kCenterX;
-  const int cy = radar::kCenterY;
-  const int r = radar::kGridOuterRadius;
-  constexpr float kDegToRad = 0.01745329252f;
-  
-  bool retro = radar::isRetroTheme();
-  
-  // Draw fading trail sectors (90 lines at 0.5 deg steps = 45 deg arc)
-  for (int i = 90; i >= 0; --i) {
-    float angle = sweep_angle - i * 0.5f;
-    float rad = angle * kDegToRad;
-    int sx = cx + static_cast<int>(lroundf(sinf(rad) * r));
-    int sy = cy - static_cast<int>(lroundf(cosf(rad) * r));
-    
-    float intensity = 1.0f - (static_cast<float>(i) / 90.0f);
-    
-    uint16_t col;
-    if (retro) {
-      uint8_t g = static_cast<uint8_t>(200 * intensity);
-      uint8_t r_c = static_cast<uint8_t>(30 * intensity);
-      col = s_draw->color565(r_c, g, 0);
-    } else {
-      uint8_t b = static_cast<uint8_t>(180 * intensity);
-      uint8_t g = static_cast<uint8_t>(150 * intensity);
-      col = s_draw->color565(0, g, b);
-    }
-    
-    s_draw->drawLine(cx, cy, sx, sy, col);
-  }
-  
-  // Draw the bright leading edge line
-  float rad = sweep_angle * kDegToRad;
-  int sx = cx + static_cast<int>(lroundf(sinf(rad) * r));
-  int sy = cy - static_cast<int>(lroundf(cosf(rad) * r));
-  uint16_t lead_col = retro ? s_draw->color565(150, 255, 150) : s_draw->color565(200, 255, 255);
-  s_draw->drawWideLine(cx, cy, sx, sy, 1.0f, lead_col);
+
+
+uint16_t mixGlowColor(uint16_t base_color, float glow_factor) {
+  if (glow_factor <= 0.0f) return base_color;
+  if (glow_factor >= 1.0f) return 0xFFFF; // Pure white
+  uint8_t r = (base_color >> 11) & 0x1F;
+  uint8_t g = (base_color >> 5) & 0x3F;
+  uint8_t b = base_color & 0x1F;
+  r = r + static_cast<uint8_t>((31 - r) * glow_factor);
+  g = g + static_cast<uint8_t>((63 - g) * glow_factor);
+  b = b + static_cast<uint8_t>((31 - b) * glow_factor);
+  return (r << 11) | (g << 5) | b;
 }
 
 void drawAircraft() {
   initLabelMetrics();
 
-  const size_t n = services::adsb::aircraftCount();
-  const services::adsb::Aircraft* planes = services::adsb::aircraftList();
+  const size_t n_new = services::adsb::aircraftCount();
+  const services::adsb::Aircraft* planes_new = services::adsb::aircraftList();
 
-  AircraftDrawItem items[services::adsb::kMaxAircraft];
-  BeyondDotDrawItem dots[services::adsb::kMaxAircraft];
-  size_t draw_count = 0;
-  size_t dot_count = 0;
+  const size_t n_old = services::adsb::aircraftCountOld();
+  const services::adsb::Aircraft* planes_old = services::adsb::aircraftListOld();
 
-  for (size_t i = 0; i < n; ++i) {
-    float dx_km = 0.0f;
-    float dy_km = 0.0f;
-    float dist_km = 0.0f;
-    offsetKmFromCenter(planes[i].lat, planes[i].lon, &dx_km, &dy_km, &dist_km);
+  // Temporary list of targets to draw this frame
+  struct RadarTarget {
+    const services::adsb::Aircraft* plane;
+    int x = 0;
+    int y = 0;
+    int dist_sq = 0;
+    float glow_factor = 0.0f;
+    bool is_rim_dot = false;
+  };
 
-    // Calculate compass bearing [0, 360)
-    float bearing = atan2f(dx_km, dy_km) * 57.295779513f;
-    if (bearing < 0.0f) {
-      bearing += 360.0f;
+  RadarTarget targets[128];
+  size_t target_count = 0;
+
+  if (s_pulse_radius < 0) {
+    // Pulse is inactive: draw all new aircraft at their new positions, no glow
+    for (size_t i = 0; i < n_new; ++i) {
+      if (target_count >= 128) break;
+      
+      float dx_km = 0.0f, dy_km = 0.0f, dist_km = 0.0f;
+      offsetKmFromCenter(planes_new[i].lat, planes_new[i].lon, &dx_km, &dy_km, &dist_km);
+      
+      int x = 0, y = 0;
+      bool rim = false;
+      if (isInsideOuterRingKm(dist_km)) {
+        latLonToScreen(planes_new[i].lat, planes_new[i].lon, &x, &y);
+      } else {
+        if (!beyondRingEdgeDotFromLatLon(planes_new[i].lat, planes_new[i].lon, &x, &y)) {
+          continue;
+        }
+        rim = true;
+      }
+      
+      targets[target_count].plane = &planes_new[i];
+      targets[target_count].x = x;
+      targets[target_count].y = y;
+      targets[target_count].dist_sq = distSqFromCenter(x, y);
+      targets[target_count].glow_factor = 0.0f;
+      targets[target_count].is_rim_dot = rim;
+      ++target_count;
+    }
+  } else {
+    // Pulse is active: synchronize positions
+    // 1. Process new aircraft list
+    for (size_t i = 0; i < n_new; ++i) {
+      if (target_count >= 128) break;
+
+      float dx_km = 0.0f, dy_km = 0.0f, dist_km = 0.0f;
+      offsetKmFromCenter(planes_new[i].lat, planes_new[i].lon, &dx_km, &dy_km, &dist_km);
+      
+      int x_new = 0, y_new = 0;
+      bool rim_new = false;
+      if (isInsideOuterRingKm(dist_km)) {
+        latLonToScreen(planes_new[i].lat, planes_new[i].lon, &x_new, &y_new);
+      } else {
+        if (!beyondRingEdgeDotFromLatLon(planes_new[i].lat, planes_new[i].lon, &x_new, &y_new)) {
+          continue;
+        }
+        rim_new = true;
+      }
+      
+      int d_sq_new = distSqFromCenter(x_new, y_new);
+      int r_new = static_cast<int>(lroundf(sqrtf(d_sq_new)));
+
+      if (s_pulse_radius >= r_new) {
+        // Swept: draw at new position with glow if fresh
+        float glow = 0.0f;
+        int diff = s_pulse_radius - r_new;
+        if (diff >= 0 && diff < 15) {
+          glow = 1.0f - (static_cast<float>(diff) / 15.0f);
+        }
+        
+        targets[target_count].plane = &planes_new[i];
+        targets[target_count].x = x_new;
+        targets[target_count].y = y_new;
+        targets[target_count].dist_sq = d_sq_new;
+        targets[target_count].glow_factor = glow;
+        targets[target_count].is_rim_dot = rim_new;
+        ++target_count;
+      } else {
+        // Not swept yet: find in old list
+        int old_idx = -1;
+        for (size_t j = 0; j < n_old; ++j) {
+          if (strcmp(planes_new[i].callsign, planes_old[j].callsign) == 0) {
+            old_idx = j;
+            break;
+          }
+        }
+        if (old_idx >= 0) {
+          float dx_old = 0.0f, dy_old = 0.0f, dist_old = 0.0f;
+          offsetKmFromCenter(planes_old[old_idx].lat, planes_old[old_idx].lon, &dx_old, &dy_old, &dist_old);
+          int x_old = 0, y_old = 0;
+          bool rim_old = false;
+          if (isInsideOuterRingKm(dist_old)) {
+            latLonToScreen(planes_old[old_idx].lat, planes_old[old_idx].lon, &x_old, &y_old);
+          } else {
+            if (!beyondRingEdgeDotFromLatLon(planes_old[old_idx].lat, planes_old[old_idx].lon, &x_old, &y_old)) {
+              continue;
+            }
+            rim_old = true;
+          }
+          targets[target_count].plane = &planes_old[old_idx];
+          targets[target_count].x = x_old;
+          targets[target_count].y = y_old;
+          targets[target_count].dist_sq = distSqFromCenter(x_old, y_old);
+          targets[target_count].glow_factor = 0.0f;
+          targets[target_count].is_rim_dot = rim_old;
+          ++target_count;
+        }
+        // If not found (brand new target), do not draw yet (will be revealed when swept)
+      }
     }
 
-    // Calculate fade intensity based on sweep angle
-    float angle_diff = s_sweep_angle - bearing;
-    if (angle_diff < 0.0f) {
-      angle_diff += 360.0f;
-    }
+    // 2. Process old list for vanished targets
+    for (size_t i = 0; i < n_old; ++i) {
+      if (target_count >= 128) break;
 
-    constexpr float kTrailAngle = 180.0f;
-    float intensity = 0.0f;
-    if (angle_diff <= kTrailAngle) {
-      constexpr float kMinIntensity = 0.05f;
-      intensity = kMinIntensity + (1.0f - kMinIntensity) * (1.0f - (angle_diff / kTrailAngle));
+      bool still_exists = false;
+      for (size_t j = 0; j < n_new; ++j) {
+        if (strcmp(planes_old[i].callsign, planes_new[j].callsign) == 0) {
+          still_exists = true;
+          break;
+        }
+      }
+
+      if (!still_exists) {
+        float dx_old = 0.0f, dy_old = 0.0f, dist_old = 0.0f;
+        offsetKmFromCenter(planes_old[i].lat, planes_old[i].lon, &dx_old, &dy_old, &dist_old);
+        int x_old = 0, y_old = 0;
+        bool rim_old = false;
+        if (isInsideOuterRingKm(dist_old)) {
+          latLonToScreen(planes_old[i].lat, planes_old[i].lon, &x_old, &y_old);
+        } else {
+          if (!beyondRingEdgeDotFromLatLon(planes_old[i].lat, planes_old[i].lon, &x_old, &y_old)) {
+            continue;
+          }
+          rim_old = true;
+        }
+        
+        int d_sq_old = distSqFromCenter(x_old, y_old);
+        int r_old = static_cast<int>(lroundf(sqrtf(d_sq_old)));
+
+        if (s_pulse_radius < r_old) {
+          // Pulse hasn't reached it yet: keep drawing at old position
+          targets[target_count].plane = &planes_old[i];
+          targets[target_count].x = x_old;
+          targets[target_count].y = y_old;
+          targets[target_count].dist_sq = d_sq_old;
+          targets[target_count].glow_factor = 0.0f;
+          targets[target_count].is_rim_dot = rim_old;
+          ++target_count;
+        }
+        // If swept, it's ignored (erased).
+      }
+    }
+  }
+
+  // --- DRAWING ---
+  
+  // Sort targets: far targets first so close targets and their labels draw on top
+  for (size_t i = 1; i < target_count; ++i) {
+    const RadarTarget key = targets[i];
+    size_t j = i;
+    while (j > 0 && targets[j - 1].dist_sq < key.dist_sq) {
+      targets[j] = targets[j - 1];
+      --j;
+    }
+    targets[j] = key;
+  }
+
+  // Phase 1: Draw symbols & speed vectors
+  for (size_t i = 0; i < target_count; ++i) {
+    const RadarTarget& t = targets[i];
+    if (t.is_rim_dot) {
+      if (t.glow_factor > 0.0f) {
+        uint16_t col = mixGlowColor(radar::kColorAircraft, t.glow_factor);
+        s_draw->fillSmoothCircle(t.x, t.y, radar::kBeyondRingDotRadiusPx, col);
+      } else {
+        s_draw->fillSmoothCircle(t.x, t.y, radar::kBeyondRingDotRadiusPx, radar::kColorAircraft);
+      }
     } else {
-      intensity = 0.05f;
+      uint16_t col_track = mixGlowColor(radar::kColorTrackVector, t.glow_factor);
+      uint16_t col_ac = mixGlowColor(radar::kColorAircraft, t.glow_factor);
+      
+      drawSpeedVector(t.x, t.y, t.plane->nose_deg, t.plane->track_deg,
+                      t.plane->gs_knots, col_track);
+      drawHeadingTriangle(t.x, t.y, t.plane->nose_deg, col_ac);
     }
-
-    if (isInsideOuterRingKm(dist_km)) {
-      int x = 0;
-      int y = 0;
-      latLonToScreen(planes[i].lat, planes[i].lon, &x, &y);
-      items[draw_count].index = i;
-      items[draw_count].x = x;
-      items[draw_count].y = y;
-      items[draw_count].dist_sq = distSqFromCenter(x, y);
-      items[draw_count].intensity = intensity;
-      ++draw_count;
-      continue;
-    }
-
-    int dot_x = 0;
-    int dot_y = 0;
-    if (!beyondRingEdgeDotFromLatLon(planes[i].lat, planes[i].lon, &dot_x, &dot_y)) {
-      continue;
-    }
-    dots[dot_count].x = dot_x;
-    dots[dot_count].y = dot_y;
-    dots[dot_count].dist_sq = distSqFromCenter(dot_x, dot_y);
-    dots[dot_count].intensity = intensity;
-    ++dot_count;
   }
 
-  sortBeyondDotsFarFirst(dots, dot_count);
-  for (size_t d = 0; d < dot_count; ++d) {
-    drawBeyondRingDot(dots[d].x, dots[d].y, dots[d].intensity);
-  }
+  // Phase 2: Draw tags on top
+  for (size_t i = 0; i < target_count; ++i) {
+    const RadarTarget& t = targets[i];
+    if (!t.is_rim_dot) {
+      initTagLabelMetrics();
+      applyTagStyleToTft();
 
-  sortDrawItemsFarFirst(items, draw_count);
-  for (size_t d = 0; d < draw_count; ++d) {
-    const size_t i = items[d].index;
-    const int x = items[d].x;
-    const int y = items[d].y;
-    const float intensity = items[d].intensity;
-    drawSpeedVector(x, y, planes[i].nose_deg, planes[i].track_deg,
-                    planes[i].gs_knots, fadeColor(radar::kColorTrackVector, intensity));
-    drawHeadingTriangle(x, y, planes[i].nose_deg, fadeColor(radar::kColorAircraft, intensity));
-  }
-  for (size_t d = 0; d < draw_count; ++d) {
-    const size_t i = items[d].index;
-    drawAircraftTag(items[d].x, items[d].y, planes[i], items[d].intensity);
+      const int line_h = s_draw->fontHeight();
+      const int block_w = measureTagBlockWidth(*t.plane);
+      const int block_h = line_h * 3;
+      int ly = t.y - block_h / 2;
+
+      const int symbol_half = radar::kAircraftNoseLenPx + radar::kAircraftTailHalfPx;
+      const bool tag_on_right = t.x < radar::kCenterX;
+      int anchor_x = 0;
+      if (tag_on_right) {
+        anchor_x = t.x + symbol_half + radar::kAircraftLabelGapPx;
+        anchor_x = std::min(anchor_x, radar::kSize - block_w - 1);
+        s_draw->setTextDatum(textdatum_t::top_left);
+      } else {
+        anchor_x = t.x - symbol_half - radar::kAircraftLabelGapPx;
+        anchor_x = std::max(anchor_x, block_w + 1);
+        s_draw->setTextDatum(textdatum_t::top_right);
+      }
+      ly = std::max(1, std::min(ly, radar::kSize - block_h - 1));
+
+      uint16_t color_label = mixGlowColor(radar::kColorLabel, t.glow_factor);
+      uint16_t color_type = mixGlowColor(radar::kColorTagType, t.glow_factor);
+      uint16_t color_alt = mixGlowColor(radar::kColorTagAltitude, t.glow_factor);
+
+      if (t.plane->callsign[0] != '\0') {
+        s_draw->setTextColor(color_label, radar::kColorBackground);
+        s_draw->drawString(t.plane->callsign, anchor_x, ly);
+      }
+      ly += line_h;
+
+      if (t.plane->type[0] != '\0') {
+        s_draw->setTextColor(color_type, radar::kColorBackground);
+        s_draw->drawString(t.plane->type, anchor_x, ly);
+      }
+      ly += line_h;
+
+      if (t.plane->alt[0] != '\0') {
+        s_draw->setTextColor(color_alt, radar::kColorBackground);
+        s_draw->drawString(t.plane->alt, anchor_x, ly);
+      }
+    }
   }
 }
 
@@ -737,15 +876,22 @@ void drawStaticGrid(Gfx& gfx) {
 }
 
 void blitBackgroundAndAircraft() {
-  tft.startWrite();
   if (s_bg_ready) {
     DrawScope scope(s_bg); // Redirect all drawing calls to s_bg
 
     // 1. Redraw static grid onto s_bg to clear previous frame
     drawStaticGrid(s_bg);
 
-    // 2. Draw the sweep beam onto s_bg
-    drawSweepBeam(s_sweep_angle);
+    // 2. Draw the pulse ring if active
+    if (s_pulse_radius >= 0) {
+      uint16_t pulse_color = radar::isRetroTheme() ? 
+                             s_bg.color565(0, 255, 100) : 
+                             s_bg.color565(0, 200, 255);
+      s_bg.drawCircle(radar::kCenterX, radar::kCenterY, s_pulse_radius, pulse_color);
+      if (s_pulse_radius > 0) {
+        s_bg.drawCircle(radar::kCenterX, radar::kCenterY, s_pulse_radius - 1, pulse_color);
+      }
+    }
 
     // 3. Draw aircraft onto s_bg
     drawAircraft();
@@ -754,20 +900,14 @@ void blitBackgroundAndAircraft() {
     drawCenterDot(radar::kCenterX, radar::kCenterY);
 
 #ifdef ENABLE_VIRTUAL_DISPLAY
-    if (config::kVirtualDisplayEnabled) {
-      static unsigned long last_serial_send = 0;
-      if (last_serial_send == 0 || millis() - last_serial_send >= 200) {
-        last_serial_send = millis();
-        Serial.write((const uint8_t*)"\xAA\xBB\xCC\xDD\xA5\x5A\xA5\x5A\x11\x22\x33\x44\x55\x66\x77\x88", 16);
-        Serial.write((const uint8_t*)s_bg.getBuffer(), config::kDisplayWidth * config::kDisplayHeight * 2);
-      }
-    }
+    displayStreamVirtual();
 #endif
 
     // 6. Push the fully composited frame buffer to the physical screen
+    tft.startWrite();
     s_bg.pushSprite(0, 0);
+    tft.endWrite();
   }
-  tft.endWrite();
   tft.setTextDatum(textdatum_t::top_left);
 }
 
@@ -776,6 +916,7 @@ void blitBackgroundAndAircraft() {
 void radarDisplayDraw() {
   initPalette();
   initLabelMetrics();
+  s_pulse_radius = -1;
 
   if (s_bg_ready) {
     blitBackgroundAndAircraft();
@@ -806,8 +947,8 @@ void radarDisplayRefreshRange() {
   radarDisplayDraw();
 }
 
-void radarDisplayRefreshWithSweep(float sweep_angle) {
-  s_sweep_angle = sweep_angle;
+void radarDisplayRefreshWithPulse(int pulse_radius) {
+  s_pulse_radius = pulse_radius;
   radarDisplayRefreshAircraft();
 }
 
