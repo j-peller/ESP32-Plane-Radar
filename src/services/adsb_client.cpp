@@ -9,6 +9,9 @@
 
 #include "config.h"
 
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+
 namespace services::adsb {
 
 namespace {
@@ -21,6 +24,8 @@ size_t s_aircraft_count = 0;
 
 Aircraft s_aircraft_old[kMaxAircraft];
 size_t s_aircraft_count_old = 0;
+
+SemaphoreHandle_t s_mutex = nullptr;
 
 float kmToNauticalMiles(float km) { return km / kKmPerNm; }
 
@@ -136,6 +141,19 @@ void fillTagFields(Aircraft* ac, const JsonObject& plane) {
 
 }  // namespace
 
+void lock() {
+  if (s_mutex == nullptr) {
+    s_mutex = xSemaphoreCreateMutex();
+  }
+  xSemaphoreTake(s_mutex, portMAX_DELAY);
+}
+
+void unlock() {
+  if (s_mutex != nullptr) {
+    xSemaphoreGive(s_mutex);
+  }
+}
+
 size_t aircraftCount() { return s_aircraft_count; }
 
 const Aircraft* aircraftList() { return s_aircraft; }
@@ -183,38 +201,41 @@ bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km) {
 
   JsonArray ac = doc["ac"].as<JsonArray>();
 
+  Aircraft temp_aircraft[kMaxAircraft];
+  size_t temp_count = 0;
+
+  if (!ac.isNull()) {
+    for (JsonObject plane : ac) {
+      if (temp_count >= kMaxAircraft) {
+        break;
+      }
+      if (!plane["lat"].is<float>() || !plane["lon"].is<float>()) {
+        continue;
+      }
+      if (isOnGround(plane) && !config::kAdsbShowGroundAircraft) {
+        continue;
+      }
+
+      temp_aircraft[temp_count].lat = plane["lat"].as<float>();
+      temp_aircraft[temp_count].lon = plane["lon"].as<float>();
+      temp_aircraft[temp_count].nose_deg = pickNoseHeading(plane);
+      temp_aircraft[temp_count].track_deg = pickTrackHeading(plane);
+      temp_aircraft[temp_count].gs_knots = pickGroundSpeed(plane);
+      fillTagFields(&temp_aircraft[temp_count], plane);
+      ++temp_count;
+    }
+  }
+
+  lock();
   // Cache current aircraft to old array before overwriting
   memcpy(s_aircraft_old, s_aircraft, sizeof(s_aircraft));
   s_aircraft_count_old = s_aircraft_count;
 
-  if (ac.isNull()) {
-    s_aircraft_count = 0;
-    return true;
-  }
+  memcpy(s_aircraft, temp_aircraft, sizeof(Aircraft) * temp_count);
+  s_aircraft_count = temp_count;
+  unlock();
 
-  size_t n = 0;
-  for (JsonObject plane : ac) {
-    if (n >= kMaxAircraft) {
-      break;
-    }
-    if (!plane["lat"].is<float>() || !plane["lon"].is<float>()) {
-      continue;
-    }
-    if (isOnGround(plane) && !config::kAdsbShowGroundAircraft) {
-      continue;
-    }
-
-    s_aircraft[n].lat = plane["lat"].as<float>();
-    s_aircraft[n].lon = plane["lon"].as<float>();
-    s_aircraft[n].nose_deg = pickNoseHeading(plane);
-    s_aircraft[n].track_deg = pickTrackHeading(plane);
-    s_aircraft[n].gs_knots = pickGroundSpeed(plane);
-    fillTagFields(&s_aircraft[n], plane);
-    ++n;
-  }
-
-  s_aircraft_count = n;
-  Serial.printf("adsb: %u aircraft\n", static_cast<unsigned>(n));
+  Serial.printf("adsb: %u aircraft\n", static_cast<unsigned>(temp_count));
   return true;
 }
 

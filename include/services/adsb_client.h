@@ -25,4 +25,7 @@ const Aircraft* aircraftListOld();
 /** Fetch aircraft within fetch_radius_km of center_lat/lon from adsb.fi. */
 bool fetchUpdate(double center_lat, double center_lon, float fetch_radius_km);
 
+void lock();
+void unlock();
+
 }  // namespace services::adsb

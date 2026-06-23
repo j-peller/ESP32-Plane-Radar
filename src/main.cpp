@@ -78,15 +78,21 @@ void handleBootButton() {
   }
 }
 
-void fetchAndDrawAircraft() {
-  const float fetch_km = ui::radar::fetchRadiusKm();
-  if (!services::adsb::fetchUpdate(services::location::lat(),
-                                   services::location::lon(), fetch_km)) {
-    handleBootButton();
-    return;
+TaskHandle_t g_fetch_task = nullptr;
+volatile bool g_fetch_completed = false;
+
+void fetchTask(void* pvParameters) {
+  while (true) {
+    if (WiFi.status() == WL_CONNECTED && g_radar_visible) {
+      const float fetch_km = ui::radar::fetchRadiusKm();
+      bool success = services::adsb::fetchUpdate(services::location::lat(),
+                                                 services::location::lon(), fetch_km);
+      if (success) {
+        g_fetch_completed = true;
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(config::kAdsbFetchIntervalMs));
   }
-  // Drawing is handled continuously in the main loop
-  handleBootButton();
 }
 
 }  // namespace
@@ -115,6 +121,9 @@ void setup() {
   if (wifiSetupConnect()) {
     showRadarIfConnected();
   }
+
+  // Start the background fetch task continuously on Core 1
+  xTaskCreatePinnedToCore(fetchTask, "ADSB_Fetch", 16384, NULL, 1, &g_fetch_task, 1);
 }
 
 void loop() {
@@ -144,10 +153,11 @@ void loop() {
     if (!g_radar_visible) {
       showRadarIfConnected();
     } else {
-      // 1. Fetch ADS-B data periodically
-      if (millis() - g_last_adsb_fetch_ms >= config::kAdsbFetchIntervalMs) {
-        fetchAndDrawAircraft();
-        g_last_adsb_fetch_ms = millis();
+      // 1. Fetch ADS-B data periodically (handled by background task)
+
+      // Check if fetch completed and trigger pulse
+      if (g_fetch_completed) {
+        g_fetch_completed = false;
         g_pulse_active = true;
         g_pulse_start_ms = millis();
       }

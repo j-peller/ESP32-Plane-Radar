@@ -82,12 +82,7 @@ constexpr uint32_t kDisplaySpiWriteHz = 40000000;
 constexpr bool kDisplayInvert = true;
 constexpr bool kDisplayRgbOrder = true;
 
-/** Stream framebuffer over USB Serial (CDC) to a virtual display client on PC. */
-#ifdef ENABLE_VIRTUAL_DISPLAY
-constexpr bool kVirtualDisplayEnabled = true;
-#else
-constexpr bool kVirtualDisplayEnabled = false;
-#endif
+
 
 // --- Radar center defaults (overridden via WiFi setup portal) ---
 constexpr double kDefaultRadarLat = 52.3676;

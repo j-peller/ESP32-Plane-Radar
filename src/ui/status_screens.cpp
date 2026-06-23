@@ -4,8 +4,8 @@
 #include <qrcode.h>
 
 #include <cmath>
-#include <cstdio>
 #include <cstddef>
+#include <cstdio>
 #include <cstring>
 
 #include "config.h"
@@ -39,36 +39,34 @@ float s_spinner_angle_deg = -90.0f;
 SpinnerDot s_spinner_dots[kSpinnerDotCount];
 bool s_connecting_text_drawn = false;
 
-constexpr auto& kGfxTitle = fonts::FreeSans18pt7b;
-constexpr auto& kGfxBody = fonts::FreeSans12pt7b;
-constexpr auto& kGfxDetail = fonts::Font2;
-constexpr auto& kPortalGfxTitle = fonts::FreeSansBold18pt7b;
-constexpr auto& kPortalGfxBody = fonts::FreeSansBold12pt7b;
-constexpr auto& kPortalGfxEmphasis = fonts::FreeSansBold18pt7b;
-constexpr auto& kConnectingGfxDetail = fonts::FreeSans9pt7b;
+constexpr auto &kGfxTitle = fonts::FreeSans18pt7b;
+constexpr auto &kGfxBody = fonts::FreeSans12pt7b;
+constexpr auto &kGfxDetail = fonts::Font2;
+constexpr auto &kPortalGfxTitle = fonts::FreeSansBold18pt7b;
+constexpr auto &kPortalGfxBody = fonts::FreeSansBold12pt7b;
+constexpr auto &kPortalGfxEmphasis = fonts::FreeSansBold18pt7b;
+constexpr auto &kConnectingGfxDetail = fonts::FreeSans9pt7b;
 
 struct TextLine {
-  const char* text;
+  const char *text;
   float vlw_size;
-  const lgfx::GFXfont* gfx_font;
+  const lgfx::GFXfont *gfx_font;
 };
 
-// Helper to direct drawing calls to s_bg (double-buffer) if ready, or fallback to tft
-lgfx::LovyanGFX* screen_gfx() {
-  return s_bg_ready ? (lgfx::LovyanGFX*)&s_bg : (lgfx::LovyanGFX*)&tft;
+// Helper to direct drawing calls to s_bg (double-buffer) if ready, or fallback
+// to tft
+lgfx::LovyanGFX *screen_gfx() {
+  return s_bg_ready ? (lgfx::LovyanGFX *)&s_bg : (lgfx::LovyanGFX *)&tft;
 }
 
-// Commits the sprite buffer to the physical display and streams it to the virtual PC display
+// Commits the sprite buffer to the physical display
 void screen_commit() {
   if (s_bg_ready) {
-#ifdef ENABLE_VIRTUAL_DISPLAY
-    displayStreamVirtual();
-#endif
     s_bg.pushSprite(0, 0);
   }
 }
 
-int lineHeightGfx(const lgfx::GFXfont* font) {
+int lineHeightGfx(const lgfx::GFXfont *font) {
   screen_gfx()->setFont(font);
   screen_gfx()->setTextSize(1);
   return screen_gfx()->fontHeight();
@@ -79,7 +77,7 @@ int lineHeightVlw(float size) {
   return screen_gfx()->fontHeight();
 }
 
-void applyLineStyle(const TextLine& line) {
+void applyLineStyle(const TextLine &line) {
   if (displayFontIsSmooth()) {
     displayFontSetSmoothSize(*screen_gfx(), line.vlw_size);
   } else {
@@ -87,7 +85,8 @@ void applyLineStyle(const TextLine& line) {
   }
 }
 
-void drawTextBlock(uint16_t bg, uint16_t fg, const TextLine* lines, size_t count) {
+void drawTextBlock(uint16_t bg, uint16_t fg, const TextLine *lines,
+                   size_t count) {
   screen_gfx()->fillScreen(bg);
   screen_gfx()->setTextColor(fg, bg);
   screen_gfx()->setTextDatum(textdatum_t::middle_center);
@@ -107,13 +106,12 @@ void drawTextBlock(uint16_t bg, uint16_t fg, const TextLine* lines, size_t count
   int y = (config::kDisplayHeight - total_h) / 2;
   for (size_t i = 0; i < count; ++i) {
     applyLineStyle(lines[i]);
-    const int h =
-        displayFontIsSmooth() ? lineHeightVlw(lines[i].vlw_size)
-                              : lineHeightGfx(lines[i].gfx_font);
+    const int h = displayFontIsSmooth() ? lineHeightVlw(lines[i].vlw_size)
+                                        : lineHeightGfx(lines[i].gfx_font);
     screen_gfx()->drawString(lines[i].text, kCenterX, y + h / 2);
     y += h + kLineGap;
   }
-  
+
   screen_commit();
 }
 
@@ -127,7 +125,8 @@ void applyConnectingDetailStyle() {
   }
 }
 
-/** SSID on one line; truncate with … if wider than kConnectingTextMaxWidthPx. */
+/** SSID on one line; truncate with … if wider than kConnectingTextMaxWidthPx.
+ */
 void fitSsidLine() {
   strncpy(s_ssid_line, s_connecting_ssid, sizeof(s_ssid_line) - 1);
   s_ssid_line[sizeof(s_ssid_line) - 1] = '\0';
@@ -158,8 +157,9 @@ void drawConnectingText() {
   const int total_h = detail_h * 2 + kLineGap;
   const int block_top = (config::kDisplayHeight - total_h) / 2;
   constexpr int kPanelPadY = 8;
-  screen_gfx()->fillRect(kCenterX - kConnectingTextMaxWidthPx / 2, block_top - kPanelPadY,
-                         kConnectingTextMaxWidthPx, total_h + kPanelPadY * 2, config::kColorBlack);
+  screen_gfx()->fillRect(kCenterX - kConnectingTextMaxWidthPx / 2,
+                         block_top - kPanelPadY, kConnectingTextMaxWidthPx,
+                         total_h + kPanelPadY * 2, config::kColorBlack);
 
   int y = block_top;
   screen_gfx()->drawString("Connecting to", kCenterX, y + detail_h / 2);
@@ -175,8 +175,8 @@ void eraseSpinnerDots() {
     if (!s_spinner_dots[i].drawn) {
       continue;
     }
-    screen_gfx()->fillCircle(s_spinner_dots[i].x, s_spinner_dots[i].y, kSpinnerEraseRadius,
-                             config::kColorBlack);
+    screen_gfx()->fillCircle(s_spinner_dots[i].x, s_spinner_dots[i].y,
+                             kSpinnerEraseRadius, config::kColorBlack);
     s_spinner_dots[i].drawn = false;
   }
 }
@@ -186,9 +186,12 @@ void drawSpinnerDots() {
   const float head_rad = s_spinner_angle_deg * kDegToRad;
 
   for (int i = 0; i < kSpinnerDotCount; ++i) {
-    const float a = head_rad - static_cast<float>(i) * (6.283185307f / kSpinnerDotCount);
-    const int x = kCenterX + static_cast<int>(std::lround(std::cos(a) * kSpinnerRadius));
-    const int y = kCenterY + static_cast<int>(std::lround(std::sin(a) * kSpinnerRadius));
+    const float a =
+        head_rad - static_cast<float>(i) * (6.283185307f / kSpinnerDotCount);
+    const int x =
+        kCenterX + static_cast<int>(std::lround(std::cos(a) * kSpinnerRadius));
+    const int y =
+        kCenterY + static_cast<int>(std::lround(std::sin(a) * kSpinnerRadius));
 
     const int fade = 255 - i * 22;
     const uint16_t color = screen_gfx()->color565(0, fade, 0);
@@ -198,45 +201,47 @@ void drawSpinnerDots() {
     s_spinner_dots[i].y = y;
     s_spinner_dots[i].drawn = true;
   }
-  
+
   screen_commit();
 }
 
 // Generates a QR Code and draws it centered inside the circle viewport
-void drawQrCode(const char* qrText) {
+void drawQrCode(const char *qrText) {
   QRCode qrcode;
   uint8_t qrcodeBytes[qrcode_getBufferSize(3)];
   qrcode_initText(&qrcode, qrcodeBytes, 3, ECC_LOW, qrText);
 
   const int scale = 4;
   const int qrSize = qrcode.size * scale; // 116 pixels
-  
+
   const int qr_x = kCenterX - qrSize / 2;
-  const int qr_y = kCenterY + 10 - qrSize / 2;
-  
+  const int qr_y = kCenterY + 15 - qrSize / 2;
+
   const int pad = 8;
   // Draw smooth white rounded rectangle background / quiet zone
-  screen_gfx()->fillRoundRect(qr_x - pad, qr_y - pad, qrSize + pad * 2, qrSize + pad * 2, 16, 0xFFFF);
-  
+  screen_gfx()->fillRoundRect(qr_x - pad, qr_y - pad, qrSize + pad * 2,
+                              qrSize + pad * 2, 16, 0xFFFF);
+
   // Draw black modules
   for (uint8_t y = 0; y < qrcode.size; y++) {
     for (uint8_t x = 0; x < qrcode.size; x++) {
       if (qrcode_getModule(&qrcode, x, y)) {
-        screen_gfx()->fillRect(qr_x + x * scale, qr_y + y * scale, scale, scale, 0x0000);
+        screen_gfx()->fillRect(qr_x + x * scale, qr_y + y * scale, scale, scale,
+                               0x0000);
       }
     }
   }
 }
 
-}  // namespace
+} // namespace
 
-void statusScreenConnectingBegin(const char* ssid) {
-  const char* name = (ssid != nullptr && ssid[0] != '\0') ? ssid : "network";
+void statusScreenConnectingBegin(const char *ssid) {
+  const char *name = (ssid != nullptr && ssid[0] != '\0') ? ssid : "network";
   strncpy(s_connecting_ssid, name, sizeof(s_connecting_ssid) - 1);
   s_connecting_ssid[sizeof(s_connecting_ssid) - 1] = '\0';
   fitSsidLine();
   s_spinner_angle_deg = -90.0f;
-  for (auto& dot : s_spinner_dots) {
+  for (auto &dot : s_spinner_dots) {
     dot.drawn = false;
   }
   s_connecting_text_drawn = false;
@@ -264,22 +269,16 @@ void statusScreenPortal() {
 
   // 2. Draw SSID info at the top
   if (displayFontIsSmooth()) {
-    displayFontSetSmoothSize(*screen_gfx(), 1.4f);
+    displayFontSetSmoothSize(*screen_gfx(), 2.0f); // Make it thicker/larger
   } else {
-    displayFontSetBitmap(*screen_gfx(), &kPortalGfxBody);
+    displayFontSetBitmap(*screen_gfx(),
+                         &kPortalGfxTitle); // Use title font instead
   }
-  screen_gfx()->drawString("Scan to Setup", kCenterX, 15);
-
-  if (displayFontIsSmooth()) {
-    displayFontSetSmoothSize(*screen_gfx(), 2.0f);
-  } else {
-    displayFontSetBitmap(*screen_gfx(), &kPortalGfxTitle);
-  }
-  screen_gfx()->drawString(config::kPortalApName, kCenterX, 42);
-
+  screen_gfx()->drawString("Scan to Setup", kCenterX, 50);
   // 3. Draw QR code in the center (SSID link format)
   char qr_text[128];
-  snprintf(qr_text, sizeof(qr_text), "WIFI:S:%s;T:nopass;;", config::kPortalApName);
+  snprintf(qr_text, sizeof(qr_text), "WIFI:S:%s;T:nopass;;",
+           config::kPortalApName);
   drawQrCode(qr_text);
 
   // 5. Commit frame

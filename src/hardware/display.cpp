@@ -51,49 +51,5 @@ void displayInit() {
   }
 }
 
-#ifdef ENABLE_VIRTUAL_DISPLAY
-void displayStreamVirtual() {
-  if (!config::kVirtualDisplayEnabled || !s_bg_ready) {
-    return;
-  }
-  static unsigned long last_serial_send = 0;
-  unsigned long now = millis();
-  if (last_serial_send != 0 && now - last_serial_send < 200) {
-    return;
-  }
-  last_serial_send = now;
-
-  Serial.write((const uint8_t*)"\xAA\xBB\xCC\xDD\xA5\x5A\xA5\x5A\x11\x22\x33\x44\x55\x66\x77\x88", 16);
-  if (s_bg.getColorDepth() == 8) {
-    // Unpack RGB332 to RGB565 and stream
-    static uint16_t lut[256];
-    static bool lut_ready = false;
-    if (!lut_ready) {
-      for (int i = 0; i < 256; ++i) {
-        uint8_t r = (i >> 5) & 0x07;
-        uint8_t g = (i >> 2) & 0x07;
-        uint8_t b = i & 0x03;
-        uint16_t r5 = (r * 31) / 7;
-        uint16_t g6 = (g * 63) / 7;
-        uint16_t b5 = (b * 31) / 3;
-        lut[i] = (r5 << 11) | (g6 << 5) | b5;
-      }
-      lut_ready = true;
-    }
-    uint8_t* buf = (uint8_t*)s_bg.getBuffer();
-    uint16_t line_buf[config::kDisplayWidth];
-    for (int y = 0; y < config::kDisplayHeight; ++y) {
-      int offset = y * config::kDisplayWidth;
-      for (int x = 0; x < config::kDisplayWidth; ++x) {
-        line_buf[x] = lut[buf[offset + x]];
-      }
-      Serial.write((const uint8_t*)line_buf, config::kDisplayWidth * 2);
-    }
-  } else {
-    Serial.write((const uint8_t*)s_bg.getBuffer(), config::kDisplayWidth * config::kDisplayHeight * 2);
-  }
-}
-#endif
-
 
 

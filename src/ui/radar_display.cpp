@@ -519,6 +519,8 @@ uint16_t mixGlowColor(uint16_t base_color, float glow_factor) {
 void drawAircraft() {
   initLabelMetrics();
 
+  services::adsb::lock();
+
   const size_t n_new = services::adsb::aircraftCount();
   const services::adsb::Aircraft* planes_new = services::adsb::aircraftList();
 
@@ -762,6 +764,8 @@ void drawAircraft() {
       }
     }
   }
+
+  services::adsb::unlock();
 }
 
 void applyCardinalStyle() {
@@ -899,9 +903,6 @@ void blitBackgroundAndAircraft() {
     // 4. Draw center dot onto s_bg
     drawCenterDot(radar::kCenterX, radar::kCenterY);
 
-#ifdef ENABLE_VIRTUAL_DISPLAY
-    displayStreamVirtual();
-#endif
 
     // 6. Push the fully composited frame buffer to the physical screen
     tft.startWrite();
